@@ -6,7 +6,8 @@ Usage:
   python3 collect.py --no-push     collect into ./data only
   python3 collect.py --selftest    offline checks
 
-Each CSV is `time,open,high,low,close`, time = candle open in unix seconds (UTC), oldest first.
+Each CSV is `time,open,high,low,close,volume,quote_volume`, time = candle open in unix seconds (UTC), oldest first.
+volume is in BMT; quote_volume is in KRW for the two Upbit files and USDT for the others.
 Only closed minutes are written. Upbit has no candle for a minute without trades; the others always do.
 Standard library only, so it runs on the macOS system Python 3.9.
 """
@@ -38,7 +39,7 @@ def get(url):
         return json.load(r)
 
 
-# ---------- fetchers: each returns {open_time_sec: [o, h, l, c]} for start <= t < end ----------
+# ---------- fetchers: each returns {open_time_sec: [o, h, l, c, volume, quote_volume]} for start <= t < end ----------
 
 def upbit(market, start, end):
     out, to = {}, ""
@@ -47,7 +48,8 @@ def upbit(market, start, end):
         for c in rows:
             t = int(datetime.fromisoformat(c["candle_date_time_utc"]).replace(tzinfo=timezone.utc).timestamp())
             if start <= t < end:
-                out[t] = [c["opening_price"], c["high_price"], c["low_price"], c["trade_price"]]
+                out[t] = [c["opening_price"], c["high_price"], c["low_price"], c["trade_price"],
+                          c["candle_acc_trade_volume"], c["candle_acc_trade_price"]]
         if len(rows) < 200 or rows[-1]["candle_date_time_utc"] <= datetime.fromtimestamp(start, timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"):
             return out
         to = f"&to={rows[-1]['candle_date_time_utc']}Z"   # newest first, `to` is exclusive
@@ -60,7 +62,7 @@ def binance(url, limit, start, end):
         rows = get(f"{url}&startTime={t * 1000}&limit={limit}")
         for k in rows:
             if k[0] // 1000 < end:
-                out[k[0] // 1000] = [float(x) for x in k[1:5]]
+                out[k[0] // 1000] = [float(x) for x in k[1:6]] + [float(k[7])]   # o h l c, base volume, quote volume
         if len(rows) < limit:
             return out
         t = rows[-1][0] // 1000 + 60
@@ -75,12 +77,14 @@ def mexc_spot(start, end):
         rows = get(f"https://api.mexc.com/api/v3/klines?symbol=BMTUSDT&interval=1m&startTime={t * 1000}&endTime={stop * 1000}&limit=500")
         for k in rows:
             if start <= k[0] // 1000 < end:
-                out[k[0] // 1000] = [float(x) for x in k[1:5]]
+                out[k[0] // 1000] = [float(x) for x in k[1:6]] + [float(k[7])]   # o h l c, base volume, quote volume
         t = stop
     return out
 
 
 def mexc_perp(start, end):
+    # vol is in contracts; contractSize (BMT per contract, 10 when checked) is read each run in case MEXC changes it
+    size = get("https://contract.mexc.com/api/v1/contract/detail?symbol=BMT_USDT")["data"]["contractSize"]
     out, t = {}, start
     while t < end:
         stop = min(end, t + 2000 * 60)
@@ -90,7 +94,7 @@ def mexc_perp(start, end):
         d = d["data"]
         for i, ts in enumerate(d["time"]):
             if start <= ts < end:
-                out[ts] = [d["open"][i], d["high"][i], d["low"][i], d["close"][i]]
+                out[ts] = [d["open"][i], d["high"][i], d["low"][i], d["close"][i], d["vol"][i] * size, d["amount"][i]]
         t = stop
     return out
 
@@ -129,7 +133,7 @@ def append(path, bars):
     with path.open("a", encoding="utf-8", newline="") as f:
         w = csv.writer(f)
         if new:
-            w.writerow(["time", "open", "high", "low", "close"])
+            w.writerow(["time", "open", "high", "low", "close", "volume", "quote_volume"])
         for t in sorted(bars):
             w.writerow([t] + [fmt(v) for v in bars[t]])
 
@@ -177,10 +181,11 @@ def selftest():
     with tempfile.TemporaryDirectory() as td:
         p = Path(td) / "x.csv"
         assert last_time(p) is None
-        append(p, {120: [1, 2, 0.5, 1.5], 60: ["0.0381", "0.039", "0.038", "0.0385"]})
-        assert p.read_text().splitlines() == ["time,open,high,low,close", "60,0.0381,0.039,0.038,0.0385", "120,1,2,0.5,1.5"], p.read_text()
+        append(p, {120: [1, 2, 0.5, 1.5, 10, 15], 60: ["0.0381", "0.039", "0.038", "0.0385", "12245.9", "471.84252"]})
+        assert p.read_text().splitlines() == ["time,open,high,low,close,volume,quote_volume",
+                                              "60,0.0381,0.039,0.038,0.0385,12245.9,471.84252", "120,1,2,0.5,1.5,10,15"], p.read_text()
         assert last_time(p) == 120
-        append(p, {180: [55.4, 55.8, 55.4, 55.5]})
+        append(p, {180: [55.4, 55.8, 55.4, 55.5, 519723.15861122, 26697274.98927121]})
         assert last_time(p) == 180 and p.read_text().count("time,") == 1
     assert fmt(1340.0) == "1340" and fmt("0.04133") == "0.04133" and fmt(1e-05) == "1e-05"
     print("selftest OK")
