@@ -2,7 +2,8 @@
 Upbit starts at its listing; Binance and MEXC start two weeks earlier.
 
 Usage:
-  python3 collect.py --repo DIR    collect into DIR/data, then commit and push DIR (a clone checked out on the `data` branch)
+  python3 collect.py --repo DIR    collect into DIR/data, then commit and push DIR (a clone checked out on the `data` branch);
+                                   run it every minute for the freshest data
   python3 collect.py --no-push     collect into ./data only
   python3 collect.py --selftest    offline checks
 
@@ -174,6 +175,8 @@ def push():
         "commit", "-q", "-m", f"data: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')} UTC")
     git("push", "-q", "origin", "HEAD:data")
     log("[git] pushed")
+    if datetime.now().minute == 0:
+        git("gc", "--quiet")   # one commit a minute leaves many loose objects; pack them hourly
 
 
 def selftest():

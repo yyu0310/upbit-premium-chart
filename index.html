@@ -54,9 +54,18 @@
 const UPBIT = "https://api.upbit.com/v1";
 const SPOT_REST = ["https://api.binance.com", "https://data-api.binance.vision"];
 const FAPI = "https://fapi.binance.com";
-// Closed 1m candles since listing, appended every 5 minutes by collect.py on the `data` branch.
-// raw.githubusercontent.com caches 5 minutes and sends CORS headers; GitHub Pages caches 10.
-const RAW = "https://raw.githubusercontent.com/yyu0310/upbit-premium-chart/data/data/";
+// Closed 1m candles, appended every minute by collect.py on the `data` branch of REPO.
+// raw.githubusercontent.com caches a branch URL for 5 minutes, so the page looks up the latest commit
+// (GitHub API, cached 60 s, 60 calls an hour per IP) and reads that commit's files, which are never stale.
+const REPO = "yyu0310/upbit-premium-chart";
+let RAW = `https://raw.githubusercontent.com/${REPO}/data/data/`;
+async function latestData() {
+  try {
+    const j = await getJson(`https://api.github.com/repos/${REPO}/branches/data`);
+    RAW = `https://raw.githubusercontent.com/${REPO}/${j.commit.sha}/data/`;
+    console.log(`[csv] data commit ${j.commit.sha.slice(0, 7)} from ${j.commit.commit.committer.date}`);
+  } catch (e) { console.warn("[csv] latest commit lookup failed, using the branch URL, which can be 5 minutes old", e); }
+}
 const FILES = { upbitKrw: "upbit_krw_bmt", usdtKrw: "upbit_krw_usdt", spot: "binance_spot", perp: "binance_perp", mexcSpot: "mexc_spot", mexcPerp: "mexc_perp" };
 const V = {
   upbit:    { name: "Upbit", color: "#5b8cff" },
@@ -378,6 +387,7 @@ function controls() {
 
 async function main() {
   controls();
+  await latestData();
   await Promise.all(Object.keys(FILES).map(loadCsv));
   // Upbit REST is rate limited, so it fills in behind everything else instead of holding up the first draw
   const up = upbitAll().then(() => { $("dUpbit").className = "dot ok"; }, (e) => { console.error(e); $("dUpbit").className = "dot bad"; })
@@ -390,7 +400,7 @@ async function main() {
   $("dBinance").className = "dot " + (r[0].status === "fulfilled" && r[1].status === "fulfilled" ? "ok" : "bad");
   console.log(`Loaded 1m bars: ${Object.entries(M).map(([k, m]) => `${k} ${m.size}`).join(", ")}, USD/KRW ${fx}`);
   $("legend").textContent = M[base].size ? "" : `${BASES[base]} data failed to load, so premiums cannot be drawn. Try the other base.`;
-  $("note").textContent = `Premium = venue price / base price - 1. Upbit KRW-BMT is converted with USD/KRW ${fx ? fx.toFixed(2) : "(unavailable)"} (${fxTime || "open.er-api.com"}) or with Upbit KRW-USDT per minute. History comes from CSV files updated every 5 minutes. The last few minutes before the page opened are fetched live, except MEXC, which repeats its last stored close until its WebSocket sends a new candle. The Upbit dot can turn red for a few seconds right after opening and then go green on its own. Minutes without trades repeat the previous close. Times are local.`;
+  $("note").textContent = `Premium = venue price / base price - 1. Upbit KRW-BMT is converted with USD/KRW ${fx ? fx.toFixed(2) : "(unavailable)"} (${fxTime || "open.er-api.com"}) or with Upbit KRW-USDT per minute. History comes from CSV files updated every minute. The last minutes before the page opened are fetched live, except MEXC, which repeats its last stored close until its WebSocket sends a new candle. The Upbit dot can turn red for a few seconds right after opening and then go green on its own. Minutes without trades repeat the previous close. Times are local.`;
   controls();
   build();
   sockets();
