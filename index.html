@@ -73,26 +73,44 @@ let fxMode = ["fx", "usdt"].includes(store("fx")) ? store("fx") : "fx";
 // ---------- Data ----------
 const upbitTime = (s) => Date.parse(s + "Z") / 1000;   // candle_date_time_utc has no zone suffix
 
-async function getJson(url, tries = 5) {
-  for (let i = 0; ; i++) {
-    const r = await fetch(url);
-    if (r.status === 429 && i < tries) { await sleep(1000 * 2 ** i); continue; }   // Upbit throttles browser requests
-    if (!r.ok) throw new Error(`${r.status} ${url}`);
-    return r.json();
+async function getJson(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`${r.status} ${url}`);
+  return r.json();
+}
+
+// Upbit allows about one request per 10 seconds from a web page, and its 429 reply has no CORS header,
+// so the browser reports it as a network error. Space requests out and retry on any failure.
+let upbitNext = 0;
+async function upbitGet(url, tries = 6) {
+  for (let i = 0; i < tries; i++) {
+    const wait = upbitNext - Date.now();
+    if (wait > 0) await sleep(wait);
+    upbitNext = Date.now() + 10500;
+    try { return await getJson(url); } catch (e) { console.warn(`[upbit] try ${i + 1} failed`, url, e); }
+  }
+  throw new Error(`Upbit unreachable: ${url}`);
+}
+
+// Pages back from now until `floor` (unix seconds), drawing after each page
+async function upbitHistory(market, key, floor) {
+  let to = "";
+  for (;;) {
+    const rows = await upbitGet(`${UPBIT}/candles/minutes/1?market=${market}&count=200${to}`);
+    for (const c of rows) {
+      const t = upbitTime(c.candle_date_time_utc);
+      if (t >= START) M[key].set(t, [c.opening_price, c.high_price, c.low_price, c.trade_price]);
+    }
+    schedule();
+    if (rows.length < 200 || upbitTime(rows[rows.length - 1].candle_date_time_utc) <= floor) return;
+    to = `&to=${rows[rows.length - 1].candle_date_time_utc}Z`;   // newest first; `to` is exclusive
   }
 }
 
-async function upbitHistory(market) {
-  let to = "";
-  for (;;) {
-    const rows = await getJson(`${UPBIT}/candles/minutes/1?market=${market}&count=200${to}`);
-    for (const c of rows) {
-      const t = upbitTime(c.candle_date_time_utc);
-      if (t >= START) M[market === "KRW-BMT" ? "upbitKrw" : "usdtKrw"].set(t, [c.opening_price, c.high_price, c.low_price, c.trade_price]);
-    }
-    if (rows.length < 200 || upbitTime(rows[rows.length - 1].candle_date_time_utc) <= START) return;
-    to = `&to=${rows[rows.length - 1].candle_date_time_utc}Z`;   // newest first; `to` is exclusive
-  }
+// KRW-USDT is only needed from the first BMT candle on, which saves requests on a listing day
+async function upbitAll() {
+  await upbitHistory("KRW-BMT", "upbitKrw", START);
+  await upbitHistory("KRW-USDT", "usdtKrw", M.upbitKrw.size ? Math.min(...M.upbitKrw.keys()) : lastMinute());
 }
 
 async function binance(key, startMs, limit) {
@@ -103,7 +121,7 @@ async function binance(key, startMs, limit) {
   for (const u of urls) {
     try {
       for (let t = startMs; ;) {
-        const rows = await getJson(`${u}&startTime=${t}&limit=${limit}`, 0);
+        const rows = await getJson(`${u}&startTime=${t}&limit=${limit}`);
         for (const k of rows) M[key].set(k[0] / 1000, k.slice(1, 5).map(Number));
         if (rows.length < limit) return;
         t = rows[rows.length - 1][0] + 60000;
@@ -268,22 +286,23 @@ function controls() {
 
 async function main() {
   controls();
-  const jobs = [
-    upbitHistory("KRW-BMT"), upbitHistory("KRW-USDT"),
+  // Upbit history is rate limited, so it fills in behind the Binance data instead of holding up the first draw
+  const up = upbitAll().then(() => { $("dUpbit").className = "dot ok"; }, (e) => { console.error(e); $("dUpbit").className = "dot bad"; })
+    .then(() => console.log(`Upbit history done: BMT ${M.upbitKrw.size}, USDT ${M.usdtKrw.size} bars`));
+  const r = await Promise.allSettled([
     binance("spot", START * 1000, 1000), binance("perp", START * 1000, 1500),
     getJson("https://open.er-api.com/v6/latest/USD").then((j) => { fx = j.rates.KRW; fxTime = j.time_last_update_utc; }),
-  ];
-  const r = await Promise.allSettled(jobs);
+  ]);
   r.forEach((x) => x.status === "rejected" && console.error(x.reason));
-  $("dUpbit").className = "dot " + (r[0].status === "fulfilled" && r[1].status === "fulfilled" ? "ok" : "bad");
-  $("dBinance").className = "dot " + (r[2].status === "fulfilled" && r[3].status === "fulfilled" ? "ok" : "bad");
-  console.log(`Loaded 1m bars: Upbit BMT ${M.upbitKrw.size}, Upbit USDT ${M.usdtKrw.size}, spot ${M.spot.size}, perp ${M.perp.size}, USD/KRW ${fx}`);
+  $("dBinance").className = "dot " + (r[0].status === "fulfilled" && r[1].status === "fulfilled" ? "ok" : "bad");
+  console.log(`Loaded 1m bars: spot ${M.spot.size}, perp ${M.perp.size}, USD/KRW ${fx}`);
   $("legend").textContent = M.spot.size ? "" : "Binance spot data failed to load, so premiums cannot be drawn.";
-  $("note").textContent = `Premium = venue price / Binance spot - 1. Upbit KRW-BMT is converted with USD/KRW ${fx ? fx.toFixed(2) : "(unavailable)"} (${fxTime || "open.er-api.com"}) or with Upbit KRW-USDT per minute. Minutes without trades repeat the previous close. Times are local.`;
+  $("note").textContent = `Premium = venue price / Binance spot - 1. Upbit KRW-BMT is converted with USD/KRW ${fx ? fx.toFixed(2) : "(unavailable)"} (${fxTime || "open.er-api.com"}) or with Upbit KRW-USDT per minute. Older Upbit candles load about one page per 10 seconds. Minutes without trades repeat the previous close. Times are local.`;
   controls();
   build();
   upbitSocket();
   pollBinance();
+  await up;
 }
 main();
 </script>
