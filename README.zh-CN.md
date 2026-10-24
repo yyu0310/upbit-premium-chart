@@ -4,7 +4,7 @@
 
 实时显示 BMT 在 Upbit 相对币安与 MEXC 的溢价。BMT 是 Bubblemaps 的代币。Upbit 用韩元报价，页面会换算成 USDT，和币安现货、币安 USDT 永续合约、MEXC 现货、MEXC USDT 永续合约画在一起。币安和 MEXC 从 BMT 在 Upbit 上线前两周开始画，看得到上币前的走势。Upbit 从上线开始。
 
-历史数据以 CSV 存在这个 repo 的 `data` 分支，`collect.py` 每 5 分钟补一次。页面先读这些文件，一两秒就能打开，再实时补上最后几分钟，之后通过 WebSocket 与轮询持续更新。页面没有后端，也不含任何 API 密钥。
+历史数据以 CSV 存在这个 repo 的 `data` 分支，`collect.py` 每分钟补一次。页面先读这些文件，一两秒就能打开，再实时补上最后几分钟，之后通过 WebSocket 与轮询持续更新。页面没有后端，也不含任何 API 密钥。
 
 在线页面：https://yyu0310.github.io/upbit-premium-chart/
 
@@ -43,21 +43,27 @@ Clone https://github.com/yyu0310/upbit-premium-chart ，用任何静态文件服
 
 自己运行数据收集程序是可选的，页面默认读这个 repo 的 `data` 分支。
 1. 把 `data` 分支 clone 到独立文件夹：`git clone -b data https://github.com/yyu0310/upbit-premium-chart data-clone`。AI agent 可以代劳。
-2. 定时运行 `python3 collect.py --repo data-clone`，例如每 5 分钟。加 `--no-push` 只写 CSV、不推送。
+2. 定时运行 `python3 collect.py --repo data-clone`，例如每分钟。加 `--no-push` 只写 CSV、不推送。
 3. 要推送的话，这份 clone 需要你 fork 的写入权限。deploy key 或 token 请自己创建，不要交给 AI agent。
-4. 把 `index.html` 程序开头的 `RAW` 改成指向你 fork 的 `data` 分支。
+4. 把 `index.html` 程序开头的 `REPO` 改成你的 fork。
 
 ## 数据来源
 
-| 交易所 | 历史 | 实时更新 |
-| --- | --- | --- |
-| Upbit KRW-BMT | CSV，最后一行之后用 REST 补 | WebSocket `candle.1m` |
-| Upbit KRW-USDT | CSV，最后一行之后用 REST 补 | WebSocket `candle.1m` |
-| 币安现货 BMTUSDT | CSV，再用 REST K 线补 | REST 每 2 秒轮询 |
-| 币安合约 BMTUSDT | CSV，再用 REST K 线补 | REST 每 2 秒轮询 |
-| MEXC 现货 BMTUSDT | 只有 CSV | WebSocket，protobuf 格式 |
-| MEXC 合约 BMT_USDT | 只有 CSV | WebSocket `sub.kline` |
-| USD/KRW | `open.er-api.com`，加载时获取一次 | 不更新，来源每天只更新一次 |
+| 交易所 | 历史 | 实时更新 | 实时延迟 |
+| --- | --- | --- | --- |
+| Upbit KRW-BMT | CSV，最后一行之后用 REST 补 | WebSocket `candle.1m` | 约 0.4 秒，90% 在 0.9 秒内 |
+| Upbit KRW-USDT | CSV，最后一行之后用 REST 补 | WebSocket `candle.1m` | 约 0.4 秒 |
+| 币安现货 BMTUSDT | CSV，再用 REST K 线补 | REST 每 2 秒轮询 | 最多 2 秒 |
+| 币安合约 BMTUSDT | CSV，再用 REST K 线补 | REST 每 2 秒轮询 | 最多 2 秒 |
+| MEXC 现货 BMTUSDT | 只有 CSV | WebSocket，protobuf 格式 | 约 0.1 秒 |
+| MEXC 合约 BMT_USDT | 只有 CSV | WebSocket `sub.kline` | 约 0.1 秒 |
+| USD/KRW | `open.er-api.com`，加载时获取一次 | 不更新，来源每天只更新一次 | |
+
+实时延迟是 2026-10-25 从台湾实测，算法是「收到时间减交易所时间戳」，时钟校正后误差约 0.3 秒。币安一次请求约 45 毫秒，延迟主要来自每 2 秒轮询。
+
+CSV 延迟：一分钟收盘后，那根 K 线 27 到 88 秒出现在 GitHub，中位数 57 秒，实测 4 分钟。页面查最新 commit 再多最多 60 秒。用分支名称的 raw 网址下载会再多最多 5 分钟缓存，要最新数据请用 `git pull` 或含 commit 编号的网址。
+
+CSV 用于回测。实时交易请从自己的电脑直接连交易所，端点、消息格式与实测延迟写在 AGENTS.md。
 
 每个 CSV 的字段是 `time,open,high,low,close,volume,quote_volume`，`time` 是 K 线开盘时间，单位是 UTC 的 unix 秒。`volume` 是成交了多少个 BMT，`quote_volume` 是成交金额，Upbit 两个文件是韩元，其他是 USDT。只写已收盘的分钟。
 
@@ -65,7 +71,7 @@ Clone https://github.com/yyu0310/upbit-premium-chart ，用任何静态文件服
 
 ## 限制
 
-- MEXC 的 REST API 没有 CORS 头，页面获取不到 CSV 最后一行到打开页面之间的那几分钟。这段 MEXC 用最后存下的收盘价补平线，等 WebSocket 推新 K 线才接上。空档通常不到 10 分钟：CSV 每 5 分钟更新，`raw.githubusercontent.com` 再缓存 5 分钟。
+- MEXC 的 REST API 没有 CORS 头，页面获取不到 CSV 最后一行到打开页面之间的那几分钟。这段 MEXC 用最后存下的收盘价补平线，等 WebSocket 推新 K 线才接上。空档通常 1 到 3 分钟。
 - 数据收集程序停掉的话，CSV 就不会更新。Upbit 和币安会改用 REST 获取比较长的一段，MEXC 的空档会变长。
 - 币安和 MEXC 从 2026-10-10 UTC 03:05 开始，也就是 Upbit 上线前 14 天。Upbit 从 2026-10-24 UTC 03:05 上线开始。时间轴是本地时间。
 - 图表最多每秒重画一次。两周的 1 分钟 K 线每家约 2 万根。
