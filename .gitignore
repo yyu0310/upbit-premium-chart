@@ -2,3 +2,5 @@
 *.log
 .env*
 工作日誌.md
+data/
+__pycache__/
