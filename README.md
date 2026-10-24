@@ -2,13 +2,15 @@
 
 [English](README.md) | [繁體中文](README.zh-TW.md) | [简体中文](README.zh-CN.md)
 
-A live chart of the BMT premium on Upbit over Binance. BMT is the Bubblemaps token. Upbit quotes it in Korean won, so the page converts it to USDT and draws it next to Binance spot and the Binance USDT perpetual. There's no backend and no API key. The browser calls the exchanges directly and the chart keeps updating while the tab is open.
+A live chart of the BMT premium on Upbit over Binance and MEXC. BMT is the Bubblemaps token. Upbit quotes it in Korean won, so the page converts it to USDT and draws it next to Binance spot, the Binance USDT perpetual, MEXC spot and the MEXC USDT perpetual, from the minute BMT listed on Upbit until now.
+
+History is stored as CSV files on this repo's `data` branch, appended every 5 minutes by `collect.py`. The page reads those files first, so it opens in a second or two, then fetches the last few minutes live and keeps updating over WebSockets and polling. There's no backend and no API key in the page.
 
 Live page: https://yyu0310.github.io/upbit-premium-chart/
 
-![Upbit premium over Binance spot on 2026-10-24, the day BMT listed on Upbit](docs/demo.png)
+![BMT on Upbit, Binance and MEXC since the Upbit listing on 2026-10-24, 5-minute candles](docs/demo.png)
 
-To run it locally with an AI coding agent, paste this:
+To run the page locally with an AI coding agent, paste this:
 
 ```
 Clone https://github.com/yyu0310/upbit-premium-chart and serve the folder with any static file server, for example python3 -m http.server, then open index.html in a browser.
@@ -18,48 +20,58 @@ Clone https://github.com/yyu0310/upbit-premium-chart and serve the folder with a
 
 | Part | What it does |
 | --- | --- |
-| Top pane | Price in USDT for Upbit, Binance spot and Binance perp. The venue picked under Candles is drawn as candles, the other two as close lines. |
-| Bottom pane | Premium of Upbit and of Binance perp over Binance spot, in percent. If Upbit or Binance perp is picked under Candles, its premium is drawn as candles. |
-| Interval | 1m, 5m or 15m candles. |
+| Top pane | Price in USDT for Upbit, Binance spot, Binance perp, MEXC spot and MEXC perp. The venue picked under Candles is drawn as candles, the others as close lines. |
+| Bottom pane | Premium of every venue over the premium base, in percent. If the picked venue isn't the base, its premium is drawn as candles. |
+| Premium base | Binance spot or MEXC spot. Use MEXC spot for a token Binance doesn't list. |
+| Interval | 1m, 5m, 15m or 1h candles. |
 | KRW to USDT | Convert Upbit's won price with the USD/KRW exchange rate, or with Upbit's own KRW-USDT price minute by minute. The two differ because USDT itself trades at a premium in Korea. |
-| Header numbers | Latest price for each venue, and the premium for Upbit and Binance perp. |
+| Header numbers | Latest price for each venue, and its premium over the base. |
 | Crosshair | Prices and premiums at the hovered candle. |
 
 ## Requirements
 
 - A modern browser.
-- Network access to `api.upbit.com`, `api.binance.com` or its mirror `data-api.binance.vision`, `fapi.binance.com` and `open.er-api.com`.
+- Network access to `raw.githubusercontent.com`, `api.upbit.com`, `api.binance.com` or its mirror `data-api.binance.vision`, `fapi.binance.com`, `contract.mexc.com`, `wbs-api.mexc.com` and `open.er-api.com`.
+- To run your own collector: Python 3.9 or later. It uses the standard library only.
 
 ## Quick start
 
-What an AI agent can do for you:
-1. Clone the repo.
-2. Serve the folder with a static file server and open `index.html`.
+Viewing the chart:
+1. Clone the repo. An AI agent can do this.
+2. Serve the folder with a static file server and open `index.html`. An AI agent can do this too.
 
-What you do yourself: nothing else. There are no accounts, keys or settings.
+Running your own collector is optional. The page reads this repo's `data` branch by default.
+1. Clone the `data` branch into its own folder: `git clone -b data https://github.com/yyu0310/upbit-premium-chart data-clone`. An AI agent can do this.
+2. Run `python3 collect.py --repo data-clone` on a schedule, every 5 minutes for example. With `--no-push` it only writes the CSV files.
+3. To push, the clone needs write access to your fork. Create the deploy key or token yourself. Don't hand it to an AI agent.
+4. Point `RAW` at the top of the script in `index.html` to your fork's `data` branch.
 
 ## Data sources
 
-| Venue | History from local midnight | Live updates |
+| Venue | History | Live updates |
 | --- | --- | --- |
-| Upbit KRW-BMT | REST 1-minute candles, 200 per request | WebSocket `candle.1m` |
-| Upbit KRW-USDT | Same, but only back to the first KRW-BMT candle of the day | WebSocket `candle.1m` |
-| Binance spot BMTUSDT | REST 1-minute klines | REST poll every 2 seconds |
-| Binance perp BMTUSDT | REST 1-minute klines | REST poll every 2 seconds |
+| Upbit KRW-BMT | CSV, then REST for the minutes after the last row | WebSocket `candle.1m` |
+| Upbit KRW-USDT | CSV, then REST for the minutes after the last row | WebSocket `candle.1m` |
+| Binance spot BMTUSDT | CSV, then REST klines | REST poll every 2 seconds |
+| Binance perp BMTUSDT | CSV, then REST klines | REST poll every 2 seconds |
+| MEXC spot BMTUSDT | CSV only | WebSocket, protobuf frames |
+| MEXC perp BMT_USDT | CSV only | WebSocket `sub.kline` |
 | USD/KRW | `open.er-api.com`, loaded once | None. The source updates once a day |
 
-Premium = venue price / Binance spot price - 1.
+Each CSV is `time,open,high,low,close`, where `time` is the candle's open in unix seconds, UTC. Only closed minutes are written.
+
+Premium = venue price / base price - 1.
 
 ## Limitations
 
-- MEXC is not included. Its futures REST API sends no CORS header, so a browser can't read its history.
-- The chart covers today only, from local midnight. Times on the axis are local time.
-- BMT listed on Upbit on 2026-10-24 at 03:05 UTC, so Upbit has no data before that.
-- Upbit only sends a candle for a minute with trades. A minute without trades repeats the previous close as a flat bar. Binance always sends a bar.
+- MEXC's REST APIs send no CORS header, so the page can't fetch the minutes between the last CSV row and the moment it opens. MEXC repeats its last stored close across those minutes until its WebSocket sends a new candle. The gap is usually under 10 minutes: the CSV updates every 5 minutes and `raw.githubusercontent.com` caches for 5.
+- If the collector stops, the CSV files go stale. Upbit and Binance then fetch more history live and the MEXC gap grows.
+- The chart starts at 2026-10-24 03:05 UTC, when BMT listed on Upbit. Times on the axis are local time.
+- Upbit only sends a candle for a minute with trades. A minute without trades repeats the previous close as a flat bar. Binance and MEXC always send a bar.
 - For Upbit converted with KRW-USDT, the high and low use the KRW-USDT close of the same minute, so they are approximate.
-- Upbit allows a web page about one request every 10 seconds. The chart draws Binance right away, and older Upbit candles fill in one page of 200 at a time. Live Upbit updates start immediately over the WebSocket.
+- Upbit allows a web page about one request every 10 seconds, so the minutes after the last CSV row can take 10 to 20 seconds to appear. Live Upbit updates start immediately over the WebSocket.
 - Right after the page opens, the Upbit status dot can turn red for a few seconds and then go green on its own. The first WebSocket connection seems to hit the same limit and reconnects 3 seconds later. Data isn't affected.
-- Binance blocks some regions. If Binance spot is unreachable, nothing is drawn, because every premium is measured against it. If another API is unreachable, only that venue stays empty.
+- Binance blocks some regions. If the base venue is unreachable, nothing is drawn, so switch the base. If another venue is unreachable, only that venue stays empty.
 - Keep the tab in the foreground. Browsers slow timers in background tabs.
 - Charts use [Lightweight Charts](https://github.com/tradingview/lightweight-charts) 5.0.8 from jsDelivr, pinned with a Subresource Integrity hash.
 
