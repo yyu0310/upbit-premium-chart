@@ -34,14 +34,16 @@
 <div id="app">
   <div class="bar">
     <div class="grp"><span class="dim">Candles</span><span id="sels"></span></div>
+    <div class="grp"><span class="dim">Premium base</span><span id="bases"></span></div>
     <div class="grp"><span class="dim">Interval</span><span id="ivs"></span></div>
     <div class="grp"><span class="dim">KRW to USDT</span><span id="fxs"></span></div>
     <div class="stat" id="stat"></div>
   </div>
-  <div id="wrap"><div id="chart"></div><div id="legend">Loading today's data...</div></div>
+  <div id="wrap"><div id="chart"></div><div id="legend">Loading data since listing...</div></div>
   <div class="foot">
     <span><span class="dot" id="dUpbit"></span>Upbit</span>
     <span><span class="dot" id="dBinance"></span>Binance</span>
+    <span><span class="dot" id="dMexc"></span>MEXC</span>
     <span id="note"></span>
   </div>
 </div>
@@ -49,34 +51,54 @@
 const UPBIT = "https://api.upbit.com/v1";
 const SPOT_REST = ["https://api.binance.com", "https://data-api.binance.vision"];
 const FAPI = "https://fapi.binance.com";
+// Closed 1m candles since listing, appended every 5 minutes by collect.py on the `data` branch.
+// raw.githubusercontent.com caches 5 minutes and sends CORS headers; GitHub Pages caches 10.
+const RAW = "https://raw.githubusercontent.com/yyu0310/upbit-premium-chart/data/data/";
+const FILES = { upbitKrw: "upbit_krw_bmt", usdtKrw: "upbit_krw_usdt", spot: "binance_spot", perp: "binance_perp", mexcSpot: "mexc_spot", mexcPerp: "mexc_perp" };
 const V = {
-  upbit: { name: "Upbit", color: "#5b8cff" },
-  spot:  { name: "Binance spot", color: "#f0b90b" },
-  perp:  { name: "Binance perp", color: "#ba68c8" },
+  upbit:    { name: "Upbit", color: "#5b8cff" },
+  spot:     { name: "Binance spot", color: "#f0b90b" },
+  perp:     { name: "Binance perp", color: "#ba68c8" },
+  mexcSpot: { name: "MEXC spot", color: "#26c6da" },
+  mexcPerp: { name: "MEXC perp", color: "#ff8a65" },
 };
-const IVS = { "1m": 1, "5m": 5, "15m": 15 };
+const BASES = { spot: "Binance spot", mexcSpot: "MEXC spot" };
+const IVS = { "1m": 1, "5m": 5, "15m": 15, "1h": 60 };
 const $ = (id) => document.getElementById(id);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } };
 
-// Today from local midnight; the chart axis shows local time
-const START = new Date().setHours(0, 0, 0, 0) / 1000;
-const SHIFT = -new Date().getTimezoneOffset() * 60;
+const START = 1792811100;   // 2026-10-24 03:05 UTC, the first KRW-BMT candle on Upbit
+const SHIFT = -new Date().getTimezoneOffset() * 60;   // the chart axis shows local time
 
 // 1m bars per source, keyed by open time in unix seconds: [o, h, l, c]
-const M = { upbitKrw: new Map(), usdtKrw: new Map(), spot: new Map(), perp: new Map() };
+const M = Object.fromEntries(Object.keys(FILES).map((k) => [k, new Map()]));
 let fx = null, fxTime = "";
 let sel = V[store("sel")] ? store("sel") : "upbit";
-let iv = IVS[store("iv")] ? store("iv") : "1m";
+let iv = IVS[store("iv")] ? store("iv") : "5m";
 let fxMode = ["fx", "usdt"].includes(store("fx")) ? store("fx") : "fx";
+let base = BASES[store("base")] ? store("base") : "spot";
 
 // ---------- Data ----------
 const upbitTime = (s) => Date.parse(s + "Z") / 1000;   // candle_date_time_utc has no zone suffix
+const lastOf = (key) => { let x = null; for (const t of M[key].keys()) if (x === null || t > x) x = t; return x; };
+const firstOf = (key) => { let x = null; for (const t of M[key].keys()) if (x === null || t < x) x = t; return x; };
+const lastMinute = () => Math.max(START, ...Object.keys(M).map((k) => lastOf(k) ?? START));
 
 async function getJson(url) {
   const r = await fetch(url);
   if (!r.ok) throw new Error(`${r.status} ${url}`);
   return r.json();
+}
+
+async function loadCsv(key) {
+  try {
+    const r = await fetch(RAW + FILES[key] + ".csv");
+    if (!r.ok) throw new Error(r.status);
+    const lines = (await r.text()).trim().split("\n").slice(1);
+    for (const line of lines) { const x = line.split(",").map(Number); M[key].set(x[0], x.slice(1, 5)); }
+    console.log(`[csv] ${FILES[key]}: ${lines.length} bars, last ${lastOf(key)}`);
+  } catch (e) { console.warn(`[csv] ${FILES[key]} not loaded`, e); }
 }
 
 // Upbit allows about one request per 10 seconds from a web page, and its 429 reply has no CORS header,
@@ -107,10 +129,10 @@ async function upbitHistory(market, key, floor) {
   }
 }
 
-// KRW-USDT is only needed from the first BMT candle on, which saves requests on a listing day
+// Only the stretch after the CSV needs the rate-limited REST API, normally one page per market
 async function upbitAll() {
-  await upbitHistory("KRW-BMT", "upbitKrw", START);
-  await upbitHistory("KRW-USDT", "usdtKrw", M.upbitKrw.size ? Math.min(...M.upbitKrw.keys()) : lastMinute());
+  await upbitHistory("KRW-BMT", "upbitKrw", lastOf("upbitKrw") ?? START);
+  await upbitHistory("KRW-USDT", "usdtKrw", lastOf("usdtKrw") ?? firstOf("upbitKrw") ?? lastMinute());
 }
 
 async function binance(key, startMs, limit) {
@@ -131,23 +153,67 @@ async function binance(key, startMs, limit) {
   throw err;
 }
 
-// Upbit pushes 1m candles over WebSocket; Binance perp WebSocket was silent in testing, so Binance is polled
-function upbitSocket() {
-  const ws = new WebSocket("wss://api.upbit.com/websocket/v1");
-  ws.binaryType = "arraybuffer";
-  let ping;
-  ws.onopen = () => {
-    ws.send(JSON.stringify([{ ticket: "upbit-premium-chart" }, { type: "candle.1m", codes: ["KRW-BMT", "KRW-USDT"] }]));
-    ping = setInterval(() => ws.send("PING"), 60000);
-    $("dUpbit").className = "dot ok";
-  };
-  ws.onmessage = (m) => {
-    const c = JSON.parse(new TextDecoder().decode(m.data));
-    if (c.type !== "candle.1m") return;
-    M[c.code === "KRW-BMT" ? "upbitKrw" : "usdtKrw"].set(upbitTime(c.candle_date_time_utc), [c.opening_price, c.high_price, c.low_price, c.trade_price]);
-    schedule();
-  };
-  ws.onclose = () => { clearInterval(ping); $("dUpbit").className = "dot bad"; setTimeout(upbitSocket, 3000); };
+// Opens a WebSocket that reconnects after 3 seconds and sends `ping` on an interval
+function socket(url, dot, { binary, subscribe, ping, every, onData }) {
+  const ws = new WebSocket(url);
+  if (binary) ws.binaryType = "arraybuffer";
+  let timer;
+  ws.onopen = () => { ws.send(subscribe); timer = setInterval(() => ws.send(ping), every); $(dot).className = "dot ok"; };
+  ws.onmessage = (m) => { try { if (onData(m.data)) schedule(); } catch (e) { console.warn("[ws]", url, e); } };
+  ws.onclose = () => { clearInterval(timer); $(dot).className = "dot bad"; setTimeout(() => socket(url, dot, { binary, subscribe, ping, every, onData }), 3000); };
+}
+
+// Minimal protobuf reader: varint fields become numbers, length-delimited fields stay as bytes
+function pbFields(buf) {
+  const out = {}; let i = 0;
+  const varint = () => { let r = 0, s = 1, b; do { b = buf[i++]; r += (b & 0x7f) * s; s *= 128; } while (b & 0x80); return r; };
+  while (i < buf.length) {
+    const key = varint(), f = Math.floor(key / 8), wt = key % 8;
+    if (wt === 0) out[f] = varint();
+    else if (wt === 2) { const n = varint(); out[f] = buf.subarray(i, i + n); i += n; }
+    else if (wt === 1) i += 8; else if (wt === 5) i += 4; else break;
+  }
+  return out;
+}
+const pbNum = (b) => Number(new TextDecoder().decode(b));
+
+function sockets() {
+  // Upbit sends JSON as binary frames
+  socket("wss://api.upbit.com/websocket/v1", "dUpbit", {
+    binary: true, every: 60000, ping: "PING",
+    subscribe: JSON.stringify([{ ticket: "upbit-premium-chart" }, { type: "candle.1m", codes: ["KRW-BMT", "KRW-USDT"] }]),
+    onData: (d) => {
+      const c = JSON.parse(new TextDecoder().decode(d));
+      if (c.type !== "candle.1m") return false;
+      M[c.code === "KRW-BMT" ? "upbitKrw" : "usdtKrw"].set(upbitTime(c.candle_date_time_utc), [c.opening_price, c.high_price, c.low_price, c.trade_price]);
+      return true;
+    },
+  });
+  // MEXC futures REST has no CORS header, so live MEXC data comes only from these two sockets
+  socket("wss://contract.mexc.com/edge", "dMexc", {
+    every: 15000, ping: JSON.stringify({ method: "ping" }),
+    subscribe: JSON.stringify({ method: "sub.kline", param: { symbol: "BMT_USDT", interval: "Min1" } }),
+    onData: (d) => {
+      const j = JSON.parse(d);
+      if (j.channel !== "push.kline" || !j.data) return false;
+      M.mexcPerp.set(j.data.t, [j.data.o, j.data.h, j.data.l, j.data.c]);
+      return true;
+    },
+  });
+  // MEXC spot only pushes protobuf: wrapper field 308 is the kline, whose field 2 is the open time in seconds
+  // and fields 3, 4, 5, 6 are open, close, high, low as decimal strings
+  socket("wss://wbs-api.mexc.com/ws", "dMexc", {
+    binary: true, every: 20000, ping: JSON.stringify({ method: "PING" }),
+    subscribe: JSON.stringify({ method: "SUBSCRIPTION", params: ["spot@public.kline.v3.api.pb@BMTUSDT@Min1"] }),
+    onData: (d) => {
+      if (typeof d === "string") return false;   // subscribe acks and pongs are JSON text
+      const w = pbFields(new Uint8Array(d));
+      if (!w[308]) return false;
+      const k = pbFields(w[308]);
+      M.mexcSpot.set(k[2], [pbNum(k[3]), pbNum(k[5]), pbNum(k[6]), pbNum(k[4])]);
+      return true;
+    },
+  });
 }
 
 async function pollBinance() {
@@ -161,22 +227,21 @@ async function pollBinance() {
 }
 
 // ---------- Series ----------
-// Align every source to one minute grid. A minute with no trade repeats the previous close as a flat bar
-function aligned(key) {
+// Align a source to the minute grid. A minute with no candle repeats the previous close as a flat bar
+function aligned(key, end) {
   const src = M[key], out = [];
   let prev = null;
-  for (let t = START; t <= lastMinute(); t += 60) {
+  for (let t = START; t <= end; t += 60) {
     const b = src.get(t);
     if (b) prev = b[3];
     out.push(b || (prev === null ? null : [prev, prev, prev, prev]));
   }
   return out;
 }
-const lastMinute = () => Math.max(...Object.values(M).map((m) => Math.max(START, ...m.keys())));
 
-function usd(key) {
-  if (key !== "upbit") return aligned(key);
-  const krw = aligned("upbitKrw"), usdt = aligned("usdtKrw");
+function usd(key, end) {
+  if (key !== "upbit") return aligned(key, end);
+  const krw = aligned("upbitKrw", end), usdt = aligned("usdtKrw", end);
   return krw.map((b, i) => {
     const r = fxMode === "fx" ? (fx ? [fx, fx, fx, fx] : null) : usdt[i];
     if (!b || !r) return null;
@@ -193,9 +258,9 @@ function agg(a, n) {
   return out;
 }
 
-// Premium over Binance spot, in percent
-function prem(bars, base) {
-  const bm = new Map(base.map((b) => [b.time, b]));
+// Premium over the base venue, in percent
+function prem(bars, baseBars) {
+  const bm = new Map(baseBars.map((b) => [b.time, b]));
   return bars.filter((b) => bm.has(b.time)).map((b) => {
     const s = bm.get(b.time);
     const o = (b.o / s.o - 1) * 100, c = (b.c / s.c - 1) * 100;
@@ -226,11 +291,11 @@ function build() {
   for (const k in V) S[k] = k === sel
     ? chart.addSeries(LightweightCharts.CandlestickSeries, { ...CANDLE, title: V[k].name, priceFormat: PX }, 0)
     : chart.addSeries(LightweightCharts.LineSeries, { color: V[k].color, lineWidth: 1, title: V[k].name, priceFormat: PX }, 0);
-  // Bottom pane: premium over Binance spot
-  for (const k of ["upbit", "perp"]) P[k] = k === sel
+  // Bottom pane: premium of every other venue over the base
+  for (const k in V) if (k !== base) P[k] = k === sel
     ? chart.addSeries(LightweightCharts.CandlestickSeries, { ...CANDLE, title: V[k].name, priceFormat: PF }, 1)
     : chart.addSeries(LightweightCharts.LineSeries, { color: V[k].color, lineWidth: 1, title: V[k].name, priceFormat: PF }, 1);
-  P.upbit.createPriceLine({ price: 0, color: "#787b86", lineWidth: 1, lineStyle: 2, title: "Binance spot" });
+  P.upbit.createPriceLine({ price: 0, color: "#787b86", lineWidth: 1, lineStyle: 2, title: BASES[base] });
   try { chart.panes()[1].setHeight(Math.round($("wrap").clientHeight * 0.4)); } catch (e) {}
   chart.subscribeCrosshairMove(legend);
   draw();
@@ -238,14 +303,15 @@ function build() {
 }
 
 function draw() {
-  if (!chart || !M.spot.size) return;
-  const bars = {}, pr = {};
-  for (const k in V) bars[k] = agg(usd(k), IVS[iv]);
-  for (const k in P) pr[k] = prem(bars[k], bars.spot);
+  if (!chart || !M[base].size) return;
+  const end = lastMinute(), bars = {}, pr = {};
+  for (const k in V) bars[k] = agg(usd(k, end), IVS[iv]);
+  for (const k in P) pr[k] = prem(bars[k], bars[base]);
   for (const k in V) S[k].setData(k === sel
     ? bars[k].map((b) => ({ time: b.time, open: b.o, high: b.h, low: b.l, close: b.c }))
     : bars[k].map((b) => ({ time: b.time, value: b.c })));
   for (const k in P) P[k].setData(k === sel ? pr[k] : pr[k].map((b) => ({ time: b.time, value: b.close })));
+  idx = {}; pidx = {};
   for (const k in V) idx[k] = new Map(bars[k].map((b) => [b.time, b]));
   for (const k in P) pidx[k] = new Map(pr[k].map((b) => [b.time, b]));
   $("stat").innerHTML = Object.keys(V).map((k) => {
@@ -280,27 +346,29 @@ function buttons(id, opts, cur, set) {
 }
 function controls() {
   buttons("sels", Object.fromEntries(Object.entries(V).map(([k, v]) => [k, v.name])), sel, (k) => { sel = k; store("sel", k); });
+  buttons("bases", BASES, base, (k) => { base = k; store("base", k); });
   buttons("ivs", Object.fromEntries(Object.keys(IVS).map((k) => [k, k])), iv, (k) => { iv = k; store("iv", k); });
   buttons("fxs", { fx: fx ? `USD/KRW ${fx.toFixed(2)}` : "USD/KRW", usdt: "Upbit USDT/KRW" }, fxMode, (k) => { fxMode = k; store("fx", k); });
 }
 
 async function main() {
   controls();
-  // Upbit history is rate limited, so it fills in behind the Binance data instead of holding up the first draw
+  await Promise.all(Object.keys(FILES).map(loadCsv));
+  // Upbit REST is rate limited, so it fills in behind everything else instead of holding up the first draw
   const up = upbitAll().then(() => { $("dUpbit").className = "dot ok"; }, (e) => { console.error(e); $("dUpbit").className = "dot bad"; })
     .then(() => console.log(`Upbit history done: BMT ${M.upbitKrw.size}, USDT ${M.usdtKrw.size} bars`));
   const r = await Promise.allSettled([
-    binance("spot", START * 1000, 1000), binance("perp", START * 1000, 1500),
+    binance("spot", (lastOf("spot") ?? START) * 1000, 1000), binance("perp", (lastOf("perp") ?? START) * 1000, 1500),
     getJson("https://open.er-api.com/v6/latest/USD").then((j) => { fx = j.rates.KRW; fxTime = j.time_last_update_utc; }),
   ]);
   r.forEach((x) => x.status === "rejected" && console.error(x.reason));
   $("dBinance").className = "dot " + (r[0].status === "fulfilled" && r[1].status === "fulfilled" ? "ok" : "bad");
-  console.log(`Loaded 1m bars: spot ${M.spot.size}, perp ${M.perp.size}, USD/KRW ${fx}`);
-  $("legend").textContent = M.spot.size ? "" : "Binance spot data failed to load, so premiums cannot be drawn.";
-  $("note").textContent = `Premium = venue price / Binance spot - 1. Upbit KRW-BMT is converted with USD/KRW ${fx ? fx.toFixed(2) : "(unavailable)"} (${fxTime || "open.er-api.com"}) or with Upbit KRW-USDT per minute. Older Upbit candles load about one page per 10 seconds. The Upbit dot can turn red for a few seconds right after opening and then go green on its own. Minutes without trades repeat the previous close. Times are local.`;
+  console.log(`Loaded 1m bars: ${Object.entries(M).map(([k, m]) => `${k} ${m.size}`).join(", ")}, USD/KRW ${fx}`);
+  $("legend").textContent = M[base].size ? "" : `${BASES[base]} data failed to load, so premiums cannot be drawn. Try the other base.`;
+  $("note").textContent = `Premium = venue price / base price - 1. Upbit KRW-BMT is converted with USD/KRW ${fx ? fx.toFixed(2) : "(unavailable)"} (${fxTime || "open.er-api.com"}) or with Upbit KRW-USDT per minute. History comes from CSV files updated every 5 minutes. The last few minutes before the page opened are fetched live, except MEXC, which repeats its last stored close until its WebSocket sends a new candle. The Upbit dot can turn red for a few seconds right after opening and then go green on its own. Minutes without trades repeat the previous close. Times are local.`;
   controls();
   build();
-  upbitSocket();
+  sockets();
   pollBinance();
   await up;
 }
