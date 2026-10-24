@@ -19,10 +19,10 @@ Clone https://github.com/yyu0310/upbit-premium-chart ，用任何静态文件服
 | 区块 | 功能 |
 | --- | --- |
 | 上图 | Upbit、币安现货、币安合约的 USDT 价格。Candles 选哪家，哪家画成 K 线，另外两家画收盘线。 |
-| 下图 | Upbit 与币安合约相对币安现货的溢价百分比。选中的那家画成溢价 K 线。 |
+| 下图 | Upbit 与币安合约相对币安现货的溢价百分比。Candles 选 Upbit 或币安合约时，那家的溢价画成 K 线。 |
 | Interval | 1 分、5 分、15 分 K 线。 |
 | KRW to USDT | Upbit 韩元价的换算方式：USD/KRW 汇率，或 Upbit 自己的 KRW-USDT 逐分钟价格。USDT 在韩国本身有溢价，所以两种算法结果不同。 |
-| 右上数字 | 各家最新价格与溢价。 |
+| 右上数字 | 各家最新价格，以及 Upbit 与币安合约的溢价。 |
 | 十字线 | 光标所在那根 K 线的各家价格与溢价。 |
 
 ## 需求
@@ -42,7 +42,8 @@ AI agent 可以代劳的：
 
 | 交易所 | 历史，从本地时间午夜起 | 实时更新 |
 | --- | --- | --- |
-| Upbit KRW-BMT 与 KRW-USDT | REST 1 分钟 K 线，每次 200 根 | WebSocket `candle.1m` |
+| Upbit KRW-BMT | REST 1 分钟 K 线，每次 200 根 | WebSocket `candle.1m` |
+| Upbit KRW-USDT | 同上，但只获取到当天 KRW-BMT 第一根 | WebSocket `candle.1m` |
 | 币安现货 BMTUSDT | REST 1 分钟 K 线 | REST 每 2 秒轮询 |
 | 币安合约 BMTUSDT | REST 1 分钟 K 线 | REST 每 2 秒轮询 |
 | USD/KRW | `open.er-api.com`，加载时获取一次 | 不更新，来源每天只更新一次 |
@@ -57,7 +58,8 @@ AI agent 可以代劳的：
 - Upbit 只有有成交的分钟才有 K 线，没成交的分钟用上一根收盘补一根平线。币安每分钟都有。
 - 用 KRW-USDT 换算时，Upbit 的高低点用同一分钟的 KRW-USDT 收盘价当分母，是近似值。
 - 网页请求 Upbit 大约每 10 秒只能 1 次。图表会先画出币安，Upbit 的旧 K 线每次补 200 根，慢慢补上。Upbit 的实时更新走 WebSocket，一打开就有。
-- 币安在部分地区被封锁。你的网络访问不到某个 API 时，那家就会是空的。
+- 刚打开页面时，Upbit 的状态灯可能红几秒，接着自己变绿。看起来是第一次 WebSocket 连接也被同一个限流挡下，3 秒后自动重连。数据不受影响。
+- 币安在部分地区被封锁。访问不到币安现货时整张图都不会画，因为所有溢价都以它为基准。访问不到其他 API 时，只有那家是空的。
 - 页面请保持在前台，浏览器会降低后台页面的计时器频率。
 - 图表用 jsDelivr 上的 [Lightweight Charts](https://github.com/tradingview/lightweight-charts) 5.0.8，并以 Subresource Integrity 哈希锁定版本。
 

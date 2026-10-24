@@ -19,10 +19,10 @@ Clone https://github.com/yyu0310/upbit-premium-chart and serve the folder with a
 | Part | What it does |
 | --- | --- |
 | Top pane | Price in USDT for Upbit, Binance spot and Binance perp. The venue picked under Candles is drawn as candles, the other two as close lines. |
-| Bottom pane | Premium of Upbit and of Binance perp over Binance spot, in percent. The picked venue is drawn as premium candles. |
+| Bottom pane | Premium of Upbit and of Binance perp over Binance spot, in percent. If Upbit or Binance perp is picked under Candles, its premium is drawn as candles. |
 | Interval | 1m, 5m or 15m candles. |
 | KRW to USDT | Convert Upbit's won price with the USD/KRW exchange rate, or with Upbit's own KRW-USDT price minute by minute. The two differ because USDT itself trades at a premium in Korea. |
-| Header numbers | Latest price and premium for each venue. |
+| Header numbers | Latest price for each venue, and the premium for Upbit and Binance perp. |
 | Crosshair | Prices and premiums at the hovered candle. |
 
 ## Requirements
@@ -42,7 +42,8 @@ What you do yourself: nothing else. There are no accounts, keys or settings.
 
 | Venue | History from local midnight | Live updates |
 | --- | --- | --- |
-| Upbit KRW-BMT and KRW-USDT | REST 1-minute candles, 200 per request | WebSocket `candle.1m` |
+| Upbit KRW-BMT | REST 1-minute candles, 200 per request | WebSocket `candle.1m` |
+| Upbit KRW-USDT | Same, but only back to the first KRW-BMT candle of the day | WebSocket `candle.1m` |
 | Binance spot BMTUSDT | REST 1-minute klines | REST poll every 2 seconds |
 | Binance perp BMTUSDT | REST 1-minute klines | REST poll every 2 seconds |
 | USD/KRW | `open.er-api.com`, loaded once | None. The source updates once a day |
@@ -57,7 +58,8 @@ Premium = venue price / Binance spot price - 1.
 - Upbit only sends a candle for a minute with trades. A minute without trades repeats the previous close as a flat bar. Binance always sends a bar.
 - For Upbit converted with KRW-USDT, the high and low use the KRW-USDT close of the same minute, so they are approximate.
 - Upbit allows a web page about one request every 10 seconds. The chart draws Binance right away, and older Upbit candles fill in one page of 200 at a time. Live Upbit updates start immediately over the WebSocket.
-- Binance blocks some regions. If an API is unreachable from your network, that venue stays empty.
+- Right after the page opens, the Upbit status dot can turn red for a few seconds and then go green on its own. The first WebSocket connection seems to hit the same limit and reconnects 3 seconds later. Data isn't affected.
+- Binance blocks some regions. If Binance spot is unreachable, nothing is drawn, because every premium is measured against it. If another API is unreachable, only that venue stays empty.
 - Keep the tab in the foreground. Browsers slow timers in background tabs.
 - Charts use [Lightweight Charts](https://github.com/tradingview/lightweight-charts) 5.0.8 from jsDelivr, pinned with a Subresource Integrity hash.
 

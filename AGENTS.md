@@ -21,4 +21,4 @@ A single static page, `index.html`, that charts the BMT premium on Upbit over Bi
 
 ## Testing
 
-Serve the folder with `python3 -m http.server` and open it in headless Chrome with `--remote-debugging-port`. Read `M`, which holds the bar count per source, and `#stat` through the DevTools protocol. Each source should gain one bar per minute.
+Serve the folder with `python3 -m http.server` and open it in headless Chrome with `--remote-debugging-port`. Read `M`, which holds the bar count per source, and `#stat` through the DevTools protocol. Binance spot and perp gain one bar per minute. Upbit only gains a bar for a minute with trades.

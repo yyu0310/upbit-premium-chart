@@ -297,7 +297,7 @@ async function main() {
   $("dBinance").className = "dot " + (r[0].status === "fulfilled" && r[1].status === "fulfilled" ? "ok" : "bad");
   console.log(`Loaded 1m bars: spot ${M.spot.size}, perp ${M.perp.size}, USD/KRW ${fx}`);
   $("legend").textContent = M.spot.size ? "" : "Binance spot data failed to load, so premiums cannot be drawn.";
-  $("note").textContent = `Premium = venue price / Binance spot - 1. Upbit KRW-BMT is converted with USD/KRW ${fx ? fx.toFixed(2) : "(unavailable)"} (${fxTime || "open.er-api.com"}) or with Upbit KRW-USDT per minute. Older Upbit candles load about one page per 10 seconds. Minutes without trades repeat the previous close. Times are local.`;
+  $("note").textContent = `Premium = venue price / Binance spot - 1. Upbit KRW-BMT is converted with USD/KRW ${fx ? fx.toFixed(2) : "(unavailable)"} (${fxTime || "open.er-api.com"}) or with Upbit KRW-USDT per minute. Older Upbit candles load about one page per 10 seconds. The Upbit dot can turn red for a few seconds right after opening and then go green on its own. Minutes without trades repeat the previous close. Times are local.`;
   controls();
   build();
   upbitSocket();
