@@ -2,13 +2,13 @@
 
 [English](README.md) | [繁體中文](README.zh-TW.md) | [简体中文](README.zh-CN.md)
 
-实时显示 BMT 在 Upbit 相对币安与 MEXC 的溢价。BMT 是 Bubblemaps 的代币。Upbit 用韩元报价，页面会换算成 USDT，和币安现货、币安 USDT 永续合约、MEXC 现货、MEXC USDT 永续合约画在一起，从 BMT 在 Upbit 上线那一分钟画到现在。
+实时显示 BMT 在 Upbit 相对币安与 MEXC 的溢价。BMT 是 Bubblemaps 的代币。Upbit 用韩元报价，页面会换算成 USDT，和币安现货、币安 USDT 永续合约、MEXC 现货、MEXC USDT 永续合约画在一起。币安和 MEXC 从 BMT 在 Upbit 上线前两周开始画，看得到上币前的走势。Upbit 从上线开始。
 
 历史数据以 CSV 存在这个 repo 的 `data` 分支，`collect.py` 每 5 分钟补一次。页面先读这些文件，一两秒就能打开，再实时补上最后几分钟，之后通过 WebSocket 与轮询持续更新。页面没有后端，也不含任何 API 密钥。
 
 在线页面：https://yyu0310.github.io/upbit-premium-chart/
 
-![2026-10-24 Upbit 上线以来，BMT 在 Upbit、币安、MEXC 的 5 分钟 K 线](docs/demo.png)
+![2026-10-24 Upbit 上线前两周到现在，BMT 在 Upbit、币安、MEXC 的 15 分钟 K 线](docs/demo.png)
 
 想在本地运行，把下面这段贴给 AI coding agent：
 
@@ -20,10 +20,11 @@ Clone https://github.com/yyu0310/upbit-premium-chart ，用任何静态文件服
 
 | 区块 | 功能 |
 | --- | --- |
-| 上图 | Upbit、币安现货、币安合约、MEXC 现货、MEXC 合约的 USDT 价格。Candles 选哪家，哪家画成 K 线，其他画收盘线。 |
+| Show | 取消勾选某家，那家就从上下两张图、右上数字、十字线说明里去掉。浏览器会记住选择。 |
+| 上图 | Upbit、币安现货、币安合约、MEXC 现货、MEXC 合约的 USDT 价格。Candles 选哪家，哪家画成 K 线，其他画收盘线。Upbit 上线那根有箭头标记。 |
 | 下图 | 各家相对溢价基准的溢价百分比。选中的那家不是基准时，它的溢价画成 K 线。 |
 | Premium base | 溢价基准，可选币安现货或 MEXC 现货。币安没上的币改用 MEXC 现货。 |
-| Interval | 1 分、5 分、15 分、1 小时 K 线。 |
+| Interval | 1 分、5 分、15 分、1 小时 K 线，默认 15 分。 |
 | KRW to USDT | Upbit 韩元价的换算方式：USD/KRW 汇率，或 Upbit 自己的 KRW-USDT 逐分钟价格。USDT 在韩国本身有溢价，所以两种算法结果不同。 |
 | 右上数字 | 各家最新价格，以及相对基准的溢价。 |
 | 十字线 | 光标所在那根 K 线的各家价格与溢价。 |
@@ -66,7 +67,8 @@ Clone https://github.com/yyu0310/upbit-premium-chart ，用任何静态文件服
 
 - MEXC 的 REST API 没有 CORS 头，页面获取不到 CSV 最后一行到打开页面之间的那几分钟。这段 MEXC 用最后存下的收盘价补平线，等 WebSocket 推新 K 线才接上。空档通常不到 10 分钟：CSV 每 5 分钟更新，`raw.githubusercontent.com` 再缓存 5 分钟。
 - 数据收集程序停掉的话，CSV 就不会更新。Upbit 和币安会改用 REST 获取比较长的一段，MEXC 的空档会变长。
-- 图表从 2026-10-24 UTC 03:05 开始，也就是 BMT 在 Upbit 上线的时间。时间轴是本地时间。
+- 币安和 MEXC 从 2026-10-10 UTC 03:05 开始，也就是 Upbit 上线前 14 天。Upbit 从 2026-10-24 UTC 03:05 上线开始。时间轴是本地时间。
+- 图表最多每秒重画一次。两周的 1 分钟 K 线每家约 2 万根。
 - Upbit 只有有成交的分钟才有 K 线，没成交的分钟用上一根收盘补一根平线。币安和 MEXC 每分钟都有。
 - 用 KRW-USDT 换算时，Upbit 的高低点用同一分钟的 KRW-USDT 收盘价当分母，是近似值。
 - 网页请求 Upbit 大约每 10 秒只能 1 次，所以 CSV 最后一行之后的 Upbit K 线要 10 到 20 秒才会出现。Upbit 的实时更新走 WebSocket，一打开就有。

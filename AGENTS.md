@@ -7,7 +7,7 @@ Context for AI coding assistants working in this repo.
 Two parts:
 
 - `index.html` on `main`: a single static page that charts the BMT premium on Upbit over a base venue, Binance spot or MEXC spot, with Binance perp, MEXC spot and MEXC perp alongside. There's no build step and no backend. The only dependency is Lightweight Charts 5.0.8, loaded from jsDelivr with an SRI hash.
-- `collect.py` on `main`: appends closed 1-minute candles for six sources to `data/*.csv` and pushes them to the `data` branch. Standard library only, so it runs on the macOS system Python 3.9.
+- `collect.py` on `main`: appends closed 1-minute candles for six sources, Upbit from its listing and Binance and MEXC from 14 days earlier, to `data/*.csv` and pushes them to the `data` branch. Standard library only, so it runs on the macOS system Python 3.9.
 
 The `data` branch holds only the CSV files and a short README. It's kept apart from `main` so data commits don't trigger GitHub Pages builds.
 
@@ -16,7 +16,7 @@ The `data` branch holds only the CSV files and a short README. It's kept apart f
 1. The page loads the six CSV files from `raw.githubusercontent.com`, which caches for 5 minutes and sends CORS headers. GitHub Pages caches for 10 and ignores query strings.
 2. It fills the minutes after the last CSV row: Upbit KRW-BMT and then KRW-USDT from REST, paged back to the last stored minute, and Binance spot and perp from REST klines. MEXC can't be filled, because its REST APIs send no CORS header.
 3. Live updates come from the Upbit WebSocket `candle.1m`, the MEXC futures WebSocket `sub.kline`, and the MEXC spot WebSocket, which only pushes protobuf. Binance spot and perp are polled every 2 seconds.
-4. Every source is a 1-minute map keyed by open time in unix seconds, aligned to one grid from the listing minute, where a missing minute repeats the previous close. The page converts Upbit to USDT, aggregates to the chosen interval and draws.
+4. Every source is a 1-minute map keyed by open time in unix seconds, aligned to one grid from two weeks before the listing, where a missing minute repeats the previous close. The page converts Upbit to USDT, aggregates to the chosen interval and draws.
 
 ## Constraints
 
@@ -25,6 +25,7 @@ The `data` branch holds only the CSV files and a short README. It's kept apart f
 - MEXC spot REST klines ignore `startTime` unless `endTime` is also given, return at most 500 rows, and treat `endTime` as exclusive. `collect.py` walks 500-minute windows.
 - Binance perp WebSocket was silent in testing, so Binance stays on REST polling.
 - Keep the SRI hash when touching the Lightweight Charts script tag.
+- Two weeks of 1m candles is about 20,000 points per series, so `schedule()` redraws at most once a second. A full 1m redraw measured 66 ms, 15m 11 ms.
 
 ## Testing
 

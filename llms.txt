@@ -1,8 +1,8 @@
 # upbit-premium-chart
 
-> Static web page that charts the live BMT premium on Upbit, KRW converted to USDT, over Binance spot or MEXC spot, with Binance perp, MEXC spot and MEXC perp alongside. History since the Upbit listing comes from CSV files on the `data` branch. No backend, no API key in the page.
+> Static web page that charts the live BMT premium on Upbit, KRW converted to USDT, over Binance spot or MEXC spot, with Binance perp, MEXC spot and MEXC perp alongside. History comes from CSV files on the `data` branch: Binance and MEXC from two weeks before the Upbit listing, Upbit from the listing. No backend, no API key in the page.
 
-The page loads 1-minute candles since 2026-10-24 03:05 UTC from the CSV files, fills the last few minutes from Upbit and Binance REST, and keeps updating through WebSockets for Upbit and MEXC and 2-second polling for Binance. `collect.py` appends closed minutes to the CSV files every 5 minutes. Premium = venue price / base price - 1.
+The page loads 1-minute candles from the CSV files, with Upbit starting at its 2026-10-24 03:05 UTC listing, fills the last few minutes from Upbit and Binance REST, and keeps updating through WebSockets for Upbit and MEXC and 2-second polling for Binance. `collect.py` appends closed minutes to the CSV files every 5 minutes. Premium = venue price / base price - 1.
 
 ## Files
 
