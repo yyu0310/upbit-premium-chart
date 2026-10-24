@@ -59,7 +59,7 @@ Clone https://github.com/yyu0310/upbit-premium-chart ，用任何靜態檔案伺
 | MEXC 合約 BMT_USDT | 只有 CSV | WebSocket `sub.kline` |
 | USD/KRW | `open.er-api.com`，載入時抓一次 | 不更新，來源每天只更新一次 |
 
-每個 CSV 的欄位是 `time,open,high,low,close`，`time` 是 K 線開盤時間，單位是 UTC 的 unix 秒。只寫已收盤的分鐘。
+每個 CSV 的欄位是 `time,open,high,low,close,volume,quote_volume`，`time` 是 K 線開盤時間，單位是 UTC 的 unix 秒。`volume` 是成交了多少顆 BMT，`quote_volume` 是成交金額，Upbit 兩檔是韓元，其他是 USDT。只寫已收盤的分鐘。
 
 溢價 = 該交易所價格 / 基準價格 - 1。
 

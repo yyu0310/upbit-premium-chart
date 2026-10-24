@@ -59,7 +59,7 @@ Running your own collector is optional. The page reads this repo's `data` branch
 | MEXC perp BMT_USDT | CSV only | WebSocket `sub.kline` |
 | USD/KRW | `open.er-api.com`, loaded once | None. The source updates once a day |
 
-Each CSV is `time,open,high,low,close`, where `time` is the candle's open in unix seconds, UTC. Only closed minutes are written.
+Each CSV is `time,open,high,low,close,volume,quote_volume`, where `time` is the candle's open in unix seconds, UTC. `volume` is in BMT. `quote_volume` is in KRW for the two Upbit files and USDT for the others. Only closed minutes are written.
 
 Premium = venue price / base price - 1.
 
