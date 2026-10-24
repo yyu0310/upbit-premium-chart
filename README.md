@@ -56,7 +56,7 @@ Premium = venue price / Binance spot price - 1.
 - BMT listed on Upbit on 2026-10-24 at 03:05 UTC, so Upbit has no data before that.
 - Upbit only sends a candle for a minute with trades. A minute without trades repeats the previous close as a flat bar. Binance always sends a bar.
 - For Upbit converted with KRW-USDT, the high and low use the KRW-USDT close of the same minute, so they are approximate.
-- Upbit throttles requests from browsers. The page retries with backoff, but a reload right after another can still be slow.
+- Upbit allows a web page about one request every 10 seconds. The chart draws Binance right away, and older Upbit candles fill in one page of 200 at a time. Live Upbit updates start immediately over the WebSocket.
 - Binance blocks some regions. If an API is unreachable from your network, that venue stays empty.
 - Keep the tab in the foreground. Browsers slow timers in background tabs.
 - Charts use [Lightweight Charts](https://github.com/tradingview/lightweight-charts) 5.0.8 from jsDelivr, pinned with a Subresource Integrity hash.

@@ -56,7 +56,7 @@ AI agent 可以代勞的：
 - BMT 在 2026-10-24 UTC 03:05 於 Upbit 上市，之前 Upbit 沒有資料。
 - Upbit 只有有成交的分鐘才有 K 線，沒成交的分鐘用上一根收盤補一根平線。幣安每分鐘都有。
 - 用 KRW-USDT 換算時，Upbit 的高低點用同一分鐘的 KRW-USDT 收盤價當分母，是近似值。
-- Upbit 會對瀏覽器請求限流。頁面會退避重試，但連續重新整理時載入可能變慢。
+- 網頁打 Upbit 大約每 10 秒只能 1 次。圖會先畫出幣安，Upbit 的舊 K 線每次補 200 根，慢慢補上。Upbit 的即時更新走 WebSocket，一打開就有。
 - 幣安在部分地區被封鎖。你的網路連不到某個 API 時，那家就會是空的。
 - 分頁請保持在前景，瀏覽器會降低背景分頁的計時器頻率。
 - 圖表用 jsDelivr 上的 [Lightweight Charts](https://github.com/tradingview/lightweight-charts) 5.0.8，並以 Subresource Integrity 雜湊鎖定版本。
