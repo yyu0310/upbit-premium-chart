@@ -1,4 +1,5 @@
 """Append closed 1-minute BMT candles from six sources to CSV files, then commit and push them.
+Upbit starts at its listing; Binance and MEXC start two weeks earlier.
 
 Usage:
   python3 collect.py --repo DIR    collect into DIR/data, then commit and push DIR (a clone checked out on the `data` branch)
@@ -20,6 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 LISTING = 1792811100          # 2026-10-24 03:05 UTC, first KRW-BMT candle on Upbit
+PRE = LISTING - 14 * 86400    # Binance and MEXC start two weeks earlier to show the run-up to the listing
 ROOT = Path(sys.argv[sys.argv.index("--repo") + 1]).resolve() if "--repo" in sys.argv else Path(__file__).resolve().parent
 DATA = ROOT / "data"
 UA = {"User-Agent": "upbit-premium-chart collector (+https://github.com/yyu0310/upbit-premium-chart)"}
@@ -139,7 +141,7 @@ def collect():
     for name in SOURCES:
         path = DATA / f"{name}.csv"
         last = last_time(path)
-        start = LISTING if last is None else last + 60
+        start = (LISTING if name.startswith("upbit") else PRE) if last is None else last + 60
         if start >= end:
             log(f"[{name}] up to date (last {last})")
             continue

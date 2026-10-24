@@ -14,6 +14,8 @@
   .bar { display:flex; align-items:center; gap:14px; padding:8px 12px; background:var(--panel); border-bottom:1px solid var(--line); flex-wrap:wrap; }
   .grp { display:flex; gap:2px; align-items:center; }
   .grp .dim { margin-right:4px; }
+  label.chk { display:inline-flex; align-items:center; gap:4px; padding:5px 7px; cursor:pointer; white-space:nowrap; }
+  label.chk input { margin:0; accent-color:var(--blue); }
   button { background:transparent; color:var(--text); border:0; padding:5px 9px; border-radius:4px; cursor:pointer; font-size:13px; }
   button:hover { background:var(--line); }
   button.on { background:var(--blue); color:#fff; }
@@ -33,13 +35,14 @@
 <body>
 <div id="app">
   <div class="bar">
+    <div class="grp"><span class="dim">Show</span><span id="shows"></span></div>
     <div class="grp"><span class="dim">Candles</span><span id="sels"></span></div>
     <div class="grp"><span class="dim">Premium base</span><span id="bases"></span></div>
     <div class="grp"><span class="dim">Interval</span><span id="ivs"></span></div>
     <div class="grp"><span class="dim">KRW to USDT</span><span id="fxs"></span></div>
     <div class="stat" id="stat"></div>
   </div>
-  <div id="wrap"><div id="chart"></div><div id="legend">Loading data since listing...</div></div>
+  <div id="wrap"><div id="chart"></div><div id="legend">Loading data...</div></div>
   <div class="foot">
     <span><span class="dot" id="dUpbit"></span>Upbit</span>
     <span><span class="dot" id="dBinance"></span>Binance</span>
@@ -68,16 +71,18 @@ const $ = (id) => document.getElementById(id);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } };
 
-const START = 1792811100;   // 2026-10-24 03:05 UTC, the first KRW-BMT candle on Upbit
+const LISTING = 1792811100;               // 2026-10-24 03:05 UTC, the first KRW-BMT candle on Upbit
+const START = LISTING - 14 * 86400;       // Binance and MEXC start two weeks earlier to show the run-up
 const SHIFT = -new Date().getTimezoneOffset() * 60;   // the chart axis shows local time
 
 // 1m bars per source, keyed by open time in unix seconds: [o, h, l, c]
 const M = Object.fromEntries(Object.keys(FILES).map((k) => [k, new Map()]));
 let fx = null, fxTime = "";
 let sel = V[store("sel")] ? store("sel") : "upbit";
-let iv = IVS[store("iv")] ? store("iv") : "5m";
+let iv = IVS[store("iv")] ? store("iv") : "15m";
 let fxMode = ["fx", "usdt"].includes(store("fx")) ? store("fx") : "fx";
 let base = BASES[store("base")] ? store("base") : "spot";
+let hidden = new Set((() => { try { return JSON.parse(store("hidden")) || []; } catch (e) { return []; } })());
 
 // ---------- Data ----------
 const upbitTime = (s) => Date.parse(s + "Z") / 1000;   // candle_date_time_utc has no zone suffix
@@ -274,10 +279,11 @@ const cls = (v) => (v >= 0 ? "up" : "down");
 const PX = { type: "price", precision: 5, minMove: 0.00001 };
 const PF = { type: "custom", formatter: (v) => v.toFixed(2) + "%", minMove: 0.01 };
 const CANDLE = { upColor: "#26a69a", downColor: "#ef5350", borderVisible: false, wickUpColor: "#26a69a", wickDownColor: "#ef5350" };
-let chart, S = {}, P = {}, idx = {}, pidx = {};
+let chart, S = {}, P = {}, idx = {}, pidx = {}, marker = null;
 
 function build() {
   if (chart) chart.remove();
+  marker = null;
   chart = LightweightCharts.createChart($("chart"), {
     autoSize: true,
     layout: { background: { color: "#131722" }, textColor: "#d1d4dc", panes: { separatorColor: "#2a2e39" } },
@@ -289,12 +295,12 @@ function build() {
   S = {}; P = {};
   // Top pane: the selected venue as candles, the others as close lines
   for (const k in V) S[k] = k === sel
-    ? chart.addSeries(LightweightCharts.CandlestickSeries, { ...CANDLE, title: V[k].name, priceFormat: PX }, 0)
-    : chart.addSeries(LightweightCharts.LineSeries, { color: V[k].color, lineWidth: 1, title: V[k].name, priceFormat: PX }, 0);
+    ? chart.addSeries(LightweightCharts.CandlestickSeries, { ...CANDLE, title: V[k].name, priceFormat: PX, visible: !hidden.has(k) }, 0)
+    : chart.addSeries(LightweightCharts.LineSeries, { color: V[k].color, lineWidth: 1, title: V[k].name, priceFormat: PX, visible: !hidden.has(k) }, 0);
   // Bottom pane: premium of every other venue over the base
   for (const k in V) if (k !== base) P[k] = k === sel
-    ? chart.addSeries(LightweightCharts.CandlestickSeries, { ...CANDLE, title: V[k].name, priceFormat: PF }, 1)
-    : chart.addSeries(LightweightCharts.LineSeries, { color: V[k].color, lineWidth: 1, title: V[k].name, priceFormat: PF }, 1);
+    ? chart.addSeries(LightweightCharts.CandlestickSeries, { ...CANDLE, title: V[k].name, priceFormat: PF, visible: !hidden.has(k) }, 1)
+    : chart.addSeries(LightweightCharts.LineSeries, { color: V[k].color, lineWidth: 1, title: V[k].name, priceFormat: PF, visible: !hidden.has(k) }, 1);
   P.upbit.createPriceLine({ price: 0, color: "#787b86", lineWidth: 1, lineStyle: 2, title: BASES[base] });
   try { chart.panes()[1].setHeight(Math.round($("wrap").clientHeight * 0.4)); } catch (e) {}
   chart.subscribeCrosshairMove(legend);
@@ -311,10 +317,11 @@ function draw() {
     ? bars[k].map((b) => ({ time: b.time, open: b.o, high: b.h, low: b.l, close: b.c }))
     : bars[k].map((b) => ({ time: b.time, value: b.c })));
   for (const k in P) P[k].setData(k === sel ? pr[k] : pr[k].map((b) => ({ time: b.time, value: b.close })));
+  if (!marker) marker = LightweightCharts.createSeriesMarkers(S[sel], [{ time: LISTING + SHIFT, position: "aboveBar", color: "#5b8cff", shape: "arrowDown", text: "Upbit listing" }]);
   idx = {}; pidx = {};
   for (const k in V) idx[k] = new Map(bars[k].map((b) => [b.time, b]));
   for (const k in P) pidx[k] = new Map(pr[k].map((b) => [b.time, b]));
-  $("stat").innerHTML = Object.keys(V).map((k) => {
+  $("stat").innerHTML = Object.keys(V).filter((k) => !hidden.has(k)).map((k) => {
     const b = bars[k][bars[k].length - 1], p = pr[k] && pr[k][pr[k].length - 1];
     return `<span><span class="sw" style="background:${V[k].color}"></span>${V[k].name} <b>${b ? b.c.toFixed(5) : "-"}</b>` +
       (p ? ` <b class="${cls(p.close)}">${pct(p.close)}</b>` : "") + `</span>`;
@@ -322,11 +329,12 @@ function draw() {
 }
 
 let pending = false;
-function schedule() { if (!pending) { pending = true; requestAnimationFrame(() => { pending = false; draw(); }); } }
+// At most one redraw a second: two weeks of 1m candles is about 20,000 points per series
+function schedule() { if (!pending) { pending = true; setTimeout(() => { pending = false; draw(); }, 1000); } }
 
 function legend(p) {
   if (!p.time) { $("legend").textContent = ""; return; }
-  $("legend").innerHTML = Object.keys(V).map((k) => {
+  $("legend").innerHTML = Object.keys(V).filter((k) => !hidden.has(k)).map((k) => {
     const b = idx[k] && idx[k].get(p.time), q = pidx[k] && pidx[k].get(p.time);
     if (!b) return "";
     const ohlc = k === sel ? `O ${b.o.toFixed(5)} H ${b.h.toFixed(5)} L ${b.l.toFixed(5)} C ${b.c.toFixed(5)}` : b.c.toFixed(5);
@@ -344,7 +352,24 @@ function buttons(id, opts, cur, set) {
     $(id).appendChild(b);
   }
 }
+// Unticked venues are hidden in both panes, the header and the crosshair legend
+function checkboxes() {
+  $("shows").innerHTML = "";
+  for (const [k, v] of Object.entries(V)) {
+    const l = document.createElement("label"), c = document.createElement("input");
+    l.className = "chk"; c.type = "checkbox"; c.checked = !hidden.has(k);
+    c.onchange = () => {
+      c.checked ? hidden.delete(k) : hidden.add(k);
+      store("hidden", JSON.stringify([...hidden]));
+      for (const s of [S[k], P[k]]) if (s) s.applyOptions({ visible: c.checked });
+      draw();
+    };
+    l.append(c, Object.assign(document.createElement("span"), { textContent: v.name, style: `color:${v.color}` }));
+    $("shows").appendChild(l);
+  }
+}
 function controls() {
+  checkboxes();
   buttons("sels", Object.fromEntries(Object.entries(V).map(([k, v]) => [k, v.name])), sel, (k) => { sel = k; store("sel", k); });
   buttons("bases", BASES, base, (k) => { base = k; store("base", k); });
   buttons("ivs", Object.fromEntries(Object.keys(IVS).map((k) => [k, k])), iv, (k) => { iv = k; store("iv", k); });
