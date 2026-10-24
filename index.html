@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>BMT Upbit Premium</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="https://cdn.jsdelivr.net/npm/lightweight-charts@5.0.8/dist/lightweight-charts.standalone.production.js" integrity="sha384-8J8e9bGIwf7e9BLO5rwf4zJwNRKcypGnvuGzORD/t4TrFA1gWbl3Hsi/RvyWwBKl" crossorigin="anonymous"></script>
+<style>
+  :root { --bg:#131722; --panel:#1e222d; --line:#2a2e39; --text:#d1d4dc; --dim:#787b86; --up:#26a69a; --down:#ef5350; --blue:#2962ff; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--text);
+    font-family:-apple-system,"PingFang TC","Helvetica Neue",Arial,sans-serif; font-size:13px; }
+  #app { display:flex; flex-direction:column; height:100%; }
+  .bar { display:flex; align-items:center; gap:14px; padding:8px 12px; background:var(--panel); border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  .grp { display:flex; gap:2px; align-items:center; }
+  .grp .dim { margin-right:4px; }
+  button { background:transparent; color:var(--text); border:0; padding:5px 9px; border-radius:4px; cursor:pointer; font-size:13px; }
+  button:hover { background:var(--line); }
+  button.on { background:var(--blue); color:#fff; }
+  .stat { display:flex; gap:16px; margin-left:auto; flex-wrap:wrap; font-variant-numeric:tabular-nums; }
+  .dim { color:var(--dim); }
+  .up { color:var(--up); } .down { color:var(--down); }
+  .sw { display:inline-block; width:8px; height:8px; border-radius:2px; margin-right:5px; }
+  #wrap { position:relative; flex:1; min-height:0; }
+  #chart { position:absolute; inset:0; }
+  #legend { position:absolute; left:10px; top:8px; z-index:5; font-size:12px; line-height:1.6; pointer-events:none;
+    background:rgba(19,23,34,.8); padding:4px 8px; border-radius:4px; font-variant-numeric:tabular-nums; }
+  .foot { display:flex; gap:18px; padding:5px 12px; background:var(--panel); border-top:1px solid var(--line); color:var(--dim); font-size:12px; flex-wrap:wrap; }
+  .dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:#f0b90b; margin-right:5px; }
+  .dot.ok { background:var(--up); } .dot.bad { background:var(--down); }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="bar">
+    <div class="grp"><span class="dim">Candles</span><span id="sels"></span></div>
+    <div class="grp"><span class="dim">Interval</span><span id="ivs"></span></div>
+    <div class="grp"><span class="dim">KRW to USDT</span><span id="fxs"></span></div>
+    <div class="stat" id="stat"></div>
+  </div>
+  <div id="wrap"><div id="chart"></div><div id="legend">Loading today's data...</div></div>
+  <div class="foot">
+    <span><span class="dot" id="dUpbit"></span>Upbit</span>
+    <span><span class="dot" id="dBinance"></span>Binance</span>
+    <span id="note"></span>
+  </div>
+</div>
+<script>
+const UPBIT = "https://api.upbit.com/v1";
+const SPOT_REST = ["https://api.binance.com", "https://data-api.binance.vision"];
+const FAPI = "https://fapi.binance.com";
+const V = {
+  upbit: { name: "Upbit", color: "#5b8cff" },
+  spot:  { name: "Binance spot", color: "#f0b90b" },
+  perp:  { name: "Binance perp", color: "#ba68c8" },
+};
+const IVS = { "1m": 1, "5m": 5, "15m": 15 };
+const $ = (id) => document.getElementById(id);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } };
+
+// Today from local midnight; the chart axis shows local time
+const START = new Date().setHours(0, 0, 0, 0) / 1000;
+const SHIFT = -new Date().getTimezoneOffset() * 60;
+
+// 1m bars per source, keyed by open time in unix seconds: [o, h, l, c]
+const M = { upbitKrw: new Map(), usdtKrw: new Map(), spot: new Map(), perp: new Map() };
+let fx = null, fxTime = "";
+let sel = V[store("sel")] ? store("sel") : "upbit";
+let iv = IVS[store("iv")] ? store("iv") : "1m";
+let fxMode = ["fx", "usdt"].includes(store("fx")) ? store("fx") : "fx";
+
+// ---------- Data ----------
+const upbitTime = (s) => Date.parse(s + "Z") / 1000;   // candle_date_time_utc has no zone suffix
+
+async function getJson(url, tries = 5) {
+  for (let i = 0; ; i++) {
+    const r = await fetch(url);
+    if (r.status === 429 && i < tries) { await sleep(1000 * 2 ** i); continue; }   // Upbit throttles browser requests
+    if (!r.ok) throw new Error(`${r.status} ${url}`);
+    return r.json();
+  }
+}
+
+async function upbitHistory(market) {
+  let to = "";
+  for (;;) {
+    const rows = await getJson(`${UPBIT}/candles/minutes/1?market=${market}&count=200${to}`);
+    for (const c of rows) {
+      const t = upbitTime(c.candle_date_time_utc);
+      if (t >= START) M[market === "KRW-BMT" ? "upbitKrw" : "usdtKrw"].set(t, [c.opening_price, c.high_price, c.low_price, c.trade_price]);
+    }
+    if (rows.length < 200 || upbitTime(rows[rows.length - 1].candle_date_time_utc) <= START) return;
+    to = `&to=${rows[rows.length - 1].candle_date_time_utc}Z`;   // newest first; `to` is exclusive
+  }
+}
+
+async function binance(key, startMs, limit) {
+  const urls = key === "spot"
+    ? SPOT_REST.map((h) => `${h}/api/v3/klines?symbol=BMTUSDT&interval=1m`)
+    : [`${FAPI}/fapi/v1/klines?symbol=BMTUSDT&interval=1m`];
+  let err;
+  for (const u of urls) {
+    try {
+      for (let t = startMs; ;) {
+        const rows = await getJson(`${u}&startTime=${t}&limit=${limit}`, 0);
+        for (const k of rows) M[key].set(k[0] / 1000, k.slice(1, 5).map(Number));
+        if (rows.length < limit) return;
+        t = rows[rows.length - 1][0] + 60000;
+      }
+    } catch (e) { err = e; console.warn("[warn]", u, e); }
+  }
+  throw err;
+}
+
+// Upbit pushes 1m candles over WebSocket; Binance perp WebSocket was silent in testing, so Binance is polled
+function upbitSocket() {
+  const ws = new WebSocket("wss://api.upbit.com/websocket/v1");
+  ws.binaryType = "arraybuffer";
+  let ping;
+  ws.onopen = () => {
+    ws.send(JSON.stringify([{ ticket: "upbit-premium-chart" }, { type: "candle.1m", codes: ["KRW-BMT", "KRW-USDT"] }]));
+    ping = setInterval(() => ws.send("PING"), 60000);
+    $("dUpbit").className = "dot ok";
+  };
+  ws.onmessage = (m) => {
+    const c = JSON.parse(new TextDecoder().decode(m.data));
+    if (c.type !== "candle.1m") return;
+    M[c.code === "KRW-BMT" ? "upbitKrw" : "usdtKrw"].set(upbitTime(c.candle_date_time_utc), [c.opening_price, c.high_price, c.low_price, c.trade_price]);
+    schedule();
+  };
+  ws.onclose = () => { clearInterval(ping); $("dUpbit").className = "dot bad"; setTimeout(upbitSocket, 3000); };
+}
+
+async function pollBinance() {
+  for (;;) {
+    await sleep(2000);
+    const from = Math.floor(Date.now() / 60000) * 60000 - 60000;   // previous minute too, so its final close lands
+    const r = await Promise.allSettled([binance("spot", from, 2), binance("perp", from, 2)]);
+    $("dBinance").className = "dot " + (r.every((x) => x.status === "fulfilled") ? "ok" : "bad");
+    schedule();
+  }
+}
+
+// ---------- Series ----------
+// Align every source to one minute grid. A minute with no trade repeats the previous close as a flat bar
+function aligned(key) {
+  const src = M[key], out = [];
+  let prev = null;
+  for (let t = START; t <= lastMinute(); t += 60) {
+    const b = src.get(t);
+    if (b) prev = b[3];
+    out.push(b || (prev === null ? null : [prev, prev, prev, prev]));
+  }
+  return out;
+}
+const lastMinute = () => Math.max(...Object.values(M).map((m) => Math.max(START, ...m.keys())));
+
+function usd(key) {
+  if (key !== "upbit") return aligned(key);
+  const krw = aligned("upbitKrw"), usdt = aligned("usdtKrw");
+  return krw.map((b, i) => {
+    const r = fxMode === "fx" ? (fx ? [fx, fx, fx, fx] : null) : usdt[i];
+    if (!b || !r) return null;
+    return [b[0] / r[0], b[1] / r[3], b[2] / r[3], b[3] / r[3]];   // high and low use the USDT close, an approximation
+  });
+}
+
+function agg(a, n) {
+  const out = [];
+  for (let i = 0; i < a.length; i += n) {
+    const g = a.slice(i, i + n).filter(Boolean);
+    if (g.length) out.push({ time: START + i * 60 + SHIFT, o: g[0][0], h: Math.max(...g.map((x) => x[1])), l: Math.min(...g.map((x) => x[2])), c: g[g.length - 1][3] });
+  }
+  return out;
+}
+
+// Premium over Binance spot, in percent
+function prem(bars, base) {
+  const bm = new Map(base.map((b) => [b.time, b]));
+  return bars.filter((b) => bm.has(b.time)).map((b) => {
+    const s = bm.get(b.time);
+    const o = (b.o / s.o - 1) * 100, c = (b.c / s.c - 1) * 100;
+    return { time: b.time, open: o, close: c, high: Math.max(o, c, (b.h / s.c - 1) * 100), low: Math.min(o, c, (b.l / s.c - 1) * 100) };
+  });
+}
+
+// ---------- Chart ----------
+const pct = (v) => (v >= 0 ? "+" : "") + v.toFixed(2) + "%";
+const cls = (v) => (v >= 0 ? "up" : "down");
+const PX = { type: "price", precision: 5, minMove: 0.00001 };
+const PF = { type: "custom", formatter: (v) => v.toFixed(2) + "%", minMove: 0.01 };
+const CANDLE = { upColor: "#26a69a", downColor: "#ef5350", borderVisible: false, wickUpColor: "#26a69a", wickDownColor: "#ef5350" };
+let chart, S = {}, P = {}, idx = {}, pidx = {};
+
+function build() {
+  if (chart) chart.remove();
+  chart = LightweightCharts.createChart($("chart"), {
+    autoSize: true,
+    layout: { background: { color: "#131722" }, textColor: "#d1d4dc", panes: { separatorColor: "#2a2e39" } },
+    grid: { vertLines: { color: "#1e222d" }, horzLines: { color: "#1e222d" } },
+    timeScale: { timeVisible: true, borderColor: "#2a2e39", lockVisibleTimeRangeOnResize: true },
+    rightPriceScale: { borderColor: "#2a2e39" },
+    crosshair: { mode: 0 },
+  });
+  S = {}; P = {};
+  // Top pane: the selected venue as candles, the others as close lines
+  for (const k in V) S[k] = k === sel
+    ? chart.addSeries(LightweightCharts.CandlestickSeries, { ...CANDLE, title: V[k].name, priceFormat: PX }, 0)
+    : chart.addSeries(LightweightCharts.LineSeries, { color: V[k].color, lineWidth: 1, title: V[k].name, priceFormat: PX }, 0);
+  // Bottom pane: premium over Binance spot
+  for (const k of ["upbit", "perp"]) P[k] = k === sel
+    ? chart.addSeries(LightweightCharts.CandlestickSeries, { ...CANDLE, title: V[k].name, priceFormat: PF }, 1)
+    : chart.addSeries(LightweightCharts.LineSeries, { color: V[k].color, lineWidth: 1, title: V[k].name, priceFormat: PF }, 1);
+  P.upbit.createPriceLine({ price: 0, color: "#787b86", lineWidth: 1, lineStyle: 2, title: "Binance spot" });
+  try { chart.panes()[1].setHeight(Math.round($("wrap").clientHeight * 0.4)); } catch (e) {}
+  chart.subscribeCrosshairMove(legend);
+  draw();
+  chart.timeScale().fitContent();
+}
+
+function draw() {
+  if (!chart || !M.spot.size) return;
+  const bars = {}, pr = {};
+  for (const k in V) bars[k] = agg(usd(k), IVS[iv]);
+  for (const k in P) pr[k] = prem(bars[k], bars.spot);
+  for (const k in V) S[k].setData(k === sel
+    ? bars[k].map((b) => ({ time: b.time, open: b.o, high: b.h, low: b.l, close: b.c }))
+    : bars[k].map((b) => ({ time: b.time, value: b.c })));
+  for (const k in P) P[k].setData(k === sel ? pr[k] : pr[k].map((b) => ({ time: b.time, value: b.close })));
+  for (const k in V) idx[k] = new Map(bars[k].map((b) => [b.time, b]));
+  for (const k in P) pidx[k] = new Map(pr[k].map((b) => [b.time, b]));
+  $("stat").innerHTML = Object.keys(V).map((k) => {
+    const b = bars[k][bars[k].length - 1], p = pr[k] && pr[k][pr[k].length - 1];
+    return `<span><span class="sw" style="background:${V[k].color}"></span>${V[k].name} <b>${b ? b.c.toFixed(5) : "-"}</b>` +
+      (p ? ` <b class="${cls(p.close)}">${pct(p.close)}</b>` : "") + `</span>`;
+  }).join("");
+}
+
+let pending = false;
+function schedule() { if (!pending) { pending = true; requestAnimationFrame(() => { pending = false; draw(); }); } }
+
+function legend(p) {
+  if (!p.time) { $("legend").textContent = ""; return; }
+  $("legend").innerHTML = Object.keys(V).map((k) => {
+    const b = idx[k] && idx[k].get(p.time), q = pidx[k] && pidx[k].get(p.time);
+    if (!b) return "";
+    const ohlc = k === sel ? `O ${b.o.toFixed(5)} H ${b.h.toFixed(5)} L ${b.l.toFixed(5)} C ${b.c.toFixed(5)}` : b.c.toFixed(5);
+    return `<span style="color:${V[k].color}">${V[k].name}</span> ${ohlc}` + (q ? ` <span class="${cls(q.close)}">${pct(q.close)}</span>` : "");
+  }).join("<br>");
+}
+
+// ---------- Controls ----------
+function buttons(id, opts, cur, set) {
+  $(id).innerHTML = "";
+  for (const [k, label] of Object.entries(opts)) {
+    const b = document.createElement("button");
+    b.textContent = label; b.className = k === cur ? "on" : "";
+    b.onclick = () => { set(k); controls(); build(); };
+    $(id).appendChild(b);
+  }
+}
+function controls() {
+  buttons("sels", Object.fromEntries(Object.entries(V).map(([k, v]) => [k, v.name])), sel, (k) => { sel = k; store("sel", k); });
+  buttons("ivs", Object.fromEntries(Object.keys(IVS).map((k) => [k, k])), iv, (k) => { iv = k; store("iv", k); });
+  buttons("fxs", { fx: fx ? `USD/KRW ${fx.toFixed(2)}` : "USD/KRW", usdt: "Upbit USDT/KRW" }, fxMode, (k) => { fxMode = k; store("fx", k); });
+}
+
+async function main() {
+  controls();
+  const jobs = [
+    upbitHistory("KRW-BMT"), upbitHistory("KRW-USDT"),
+    binance("spot", START * 1000, 1000), binance("perp", START * 1000, 1500),
+    getJson("https://open.er-api.com/v6/latest/USD").then((j) => { fx = j.rates.KRW; fxTime = j.time_last_update_utc; }),
+  ];
+  const r = await Promise.allSettled(jobs);
+  r.forEach((x) => x.status === "rejected" && console.error(x.reason));
+  $("dUpbit").className = "dot " + (r[0].status === "fulfilled" && r[1].status === "fulfilled" ? "ok" : "bad");
+  $("dBinance").className = "dot " + (r[2].status === "fulfilled" && r[3].status === "fulfilled" ? "ok" : "bad");
+  console.log(`Loaded 1m bars: Upbit BMT ${M.upbitKrw.size}, Upbit USDT ${M.usdtKrw.size}, spot ${M.spot.size}, perp ${M.perp.size}, USD/KRW ${fx}`);
+  $("legend").textContent = M.spot.size ? "" : "Binance spot data failed to load, so premiums cannot be drawn.";
+  $("note").textContent = `Premium = venue price / Binance spot - 1. Upbit KRW-BMT is converted with USD/KRW ${fx ? fx.toFixed(2) : "(unavailable)"} (${fxTime || "open.er-api.com"}) or with Upbit KRW-USDT per minute. Minutes without trades repeat the previous close. Times are local.`;
+  controls();
+  build();
+  upbitSocket();
+  pollBinance();
+}
+main();
+</script>
+</body>
+</html>
