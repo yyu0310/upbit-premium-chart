@@ -1,0 +1,11 @@
+# upbit-premium-chart
+
+> Static web page that charts the live BMT premium on Upbit (KRW converted to USDT) over Binance spot, with Binance perp alongside. No backend, no API key.
+
+The page loads today's 1-minute candles from Upbit and Binance, converts Upbit's won price with either USD/KRW or Upbit's KRW-USDT, and keeps updating through the Upbit WebSocket and 2-second Binance polling. Premium = venue price / Binance spot - 1.
+
+## Files
+
+- [index.html](index.html): the whole app
+- [README.md](README.md): usage, data sources and limitations
+- [AGENTS.md](AGENTS.md): data flow and constraints for AI coding assistants
