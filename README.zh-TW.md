@@ -2,6 +2,8 @@
 
 [English](README.md) | [繁體中文](README.zh-TW.md) | [简体中文](README.zh-CN.md)
 
+> **狀態：** 資料收集已在 2026-11-22 停止，圖表只顯示到當天為止的歷史資料，不再更新。
+
 即時顯示 BMT 在 Upbit 相對幣安與 MEXC 的溢價。BMT 是 Bubblemaps 的代幣。Upbit 用韓元報價，頁面會換算成 USDT，跟幣安現貨、幣安 USDT 永續合約、MEXC 現貨、MEXC USDT 永續合約畫在一起。幣安和 MEXC 從 BMT 在 Upbit 上市前兩週開始畫，看得到上幣前的走勢。Upbit 從上市開始。
 
 歷史資料以 CSV 存在這個 repo 的 `data` 分支，`collect.py` 每分鐘補一次。頁面先讀這些檔，一兩秒就能打開，再即時補上最後幾分鐘，之後透過 WebSocket 與輪詢持續更新。頁面沒有後端，也不含任何 API 金鑰。

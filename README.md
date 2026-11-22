@@ -2,6 +2,8 @@
 
 [English](README.md) | [繁體中文](README.zh-TW.md) | [简体中文](README.zh-CN.md)
 
+> **Status:** data collection stopped on 2026-11-22. The chart shows history up to that day and no longer updates.
+
 A live chart of the BMT premium on Upbit over Binance and MEXC. BMT is the Bubblemaps token. Upbit quotes it in Korean won, so the page converts it to USDT and draws it next to Binance spot, the Binance USDT perpetual, MEXC spot and the MEXC USDT perpetual. Binance and MEXC start two weeks before BMT listed on Upbit, to show the run-up, and Upbit starts at its listing.
 
 History is stored as CSV files on this repo's `data` branch, appended every minute by `collect.py`. The page reads those files first, so it opens in a second or two, then fetches the last few minutes live and keeps updating over WebSockets and polling. There's no backend and no API key in the page.
